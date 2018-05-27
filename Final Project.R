@@ -4,7 +4,7 @@ library(plm)
 library(tseries)
 library(simcf)
 
-data <- read.dta("C:/Users/arsell/Desktop/CharterInfoSetAnalysis.dta")
+data <- read.dta("Data/CharterInfoSetAnalysis.dta")
 
 # SURVEYYEAR = year
 # SCHOOLIDNCESASSIGNED = school id
@@ -76,5 +76,72 @@ n <- length(schoolidlist)
 
 for (i in 1:n){
   currschool <- schoolidlist[i]
-  
+  plot(totalstudents[id==currschool], type="l", ylab="Total Students", xlab = "Year",
+       main = paste("School", currschool))
 }
+
+for (i in 1:n){
+  currschool <- schoolidlist[i]
+  acf(totalstudents[id==currschool])
+}
+
+for (i in 1:n){
+  currschool <- schoolidlist[i]
+  pacf(totalstudents[id==currschool])
+}
+
+PPtest.pvalues <- rep(0,n)
+adftest.pvalues <- rep(0,n)
+
+for (i in 1:n){
+  currschool <- schoolidlist[i]
+  curPP <- try(PP.test(totalstudents[id==currschool])$p.value)
+  if (any(class(curPP)=="try-error")) curPP <- NA
+  PPtest.pvalues[i] <- curPP
+  
+  curadf <- try(adf.test(totalstudents[id==currschool])$p.value)
+  if (any(class(curadf) == "try-error")) curadf <- NA
+  adftest.pvalues[i] <- curadf
+}
+
+pdf("PPtest.pdf",width=6,height=3.25)
+hist(PPtest.pvalues)          # Plot a histogram of the p-values
+dev.off()
+
+pdf("adftest.pdf",width=6,height=3.25)
+hist(adftest.pvalues)         # Plot a histogram of the p-values
+dev.off()
+
+## PLM data frame
+
+pdata <- pdata.frame(selectdata, index=c("id", "year"))
+
+#random effects model - 5 miles
+fit.r1 <- lme(fixed = totalstudents ~ charterfiveoverlap + factor(year),
+            random = ~ 1 | id,
+            correlation = corARMA(form = ~ year | id,
+                                  p = 1,
+                                  q = 0))
+summary(fit.r1)
+
+## fixed effects model - 5 miles
+pvar(pdata)
+
+fit.f1 <- plm(totalstudents ~ totalstudentslag1 + charterfiveoverlap + factor(year),
+              data=pdata, model="within")
+summary(fit.f1)
+
+pbgtest(fit.f1)
+
+robust <- "None"   # Choose var-cov estimator here
+if (robust=="None") vc <- vcov(plm.res2)
+if (robust=="Arellano") vc <- vcovHC(plm.res2)   # Arellano (1987) heteroskedastic and serial correlation robust VC
+if (robust=="BeckKatz") vc <- vcovBK(plm.res2)   # Beck and Katz (1995) panel corrected VC
+if (robust=="DriscollKraay") vc <- vcovSCC(plm.res2)   # Driscoll and Kraay panel corrected VC
+
+pe.fit.f1 <- coef(fit.f1)
+vc.fit.f1 <- vc
+se.fit.f1 <- sqrt(diag(vc.fit.f1))
+tstat.fit.f1 <- abs(pe.fit.f1/se.fit.f1)
+df.fit.f1 <- rep(fit.f1$df.residual, length(tstat.fit.f1))
+pval.fit.f1 <- 2*pt(tstat.fit.f1, df.fit.f1, lower.tail = FALSE)
