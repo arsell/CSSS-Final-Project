@@ -1,0 +1,253 @@
+---
+title: "How Charter Schools Affect Nearby Public Schools"
+author: 
+- "Austin Sell"
+- "Nicole Kovski"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+abstract: "Abstract..."
+output:
+    pdf_document
+fontsize: 12pt
+geometry: margin=1in
+header-includes:
+    - \usepackage{setspace}
+    - \doublespacing
+---
+
+---
+references:
+- id: Ochoa2006
+  title: "TV Watching Modifies Obesity Risk Linked to the 27Glu Polymorphism of the ADRB2 Gene in Girls"
+  author:
+  - family: Ochoa
+    given: MC
+  - family: Moreno-Aliaga
+    given: MJ
+  - family: Martinez-Gonzalez
+    given: MA
+  - family: Martinez
+    given: JA
+  - family: Marti
+    given: A
+  container-title: Pediatric Obesity
+  volume: 1
+  issue: 2
+  page: 83-88
+  type: article-journal
+  issued:
+    year: 2006
+    
+- id: Danner2008
+  title: "A National Longitudinal Study of the Association between Hours of TV Viewing and the Trajectory of BMI Growth among US Children"
+  author:
+  - family: Danner
+    given: Fred W
+  container-title: "Journal of Pediatric Psychology"
+  volume: 33
+  issue: 10
+  page: 1100-1107
+  type: article-journal
+  issued:
+    year: 2008
+    
+- id: Rey2008
+  title: "Sedentary Behaviour and Obesity Development in Children and Adolescents"
+  author:
+  - family: Rey-Lopez
+    given: Juan Pablo
+  - family: Vicente-Rodriguez
+    given: German
+  - family: Biosca
+    given: Mireia
+  - family: Moreno
+    given: Luis A.
+  container-title: "Nutrition, Metabolism and Cardiovascular Diseases"
+  volume: 18
+  issue: 3
+  page: 242-251
+  type: article-journal
+  issued:
+    year: 2008
+  
+...
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(foreign)
+library(nlme)      # Estimation of mixed effects models
+library(lme4)      # Alternative package for mixed effects models
+library(plm)       # Econometrics package for linear panel models
+library(arm)       # Gelman & Hill code for mixed effects simulation
+library(pcse)      # Calculate PCSEs for LS models (Beck & Katz)
+library(tseries)   # For ADF unit root test
+library(simcf)     # For panel functions and simulators
+library(MASS)
+
+data <- read.dta("Data/CharterInfoSetAnalysis.dta")
+
+# SURVEYYEAR = year
+# SCHOOLIDNCESASSIGNED = school id
+# TOTALSTUDENTS = total students
+# charteronehalfoverlap = charter school with 1.5 miles with overlapping grades
+# chartertwohalfoverlap = charter school with 2.5 miles with overlapping grades
+# charterfiveoverlap = charter school with 5 miles with overlapping grades
+# chartertenoverlap = charter school with 10 miles with overlapping grades
+# numchartersonehalfoverlap = total number of charters within 1.5 miles with overlapping grades
+# numcharterstwohalfoverlap = total number of charters within 2.5 miles with overlapping grades
+# numchartersfiveoverlap = total number of charters within 5 miles with overlapping grades
+# numcharterstenoverlap = total number of charters within 10 miles with overlapping grades
+# FRLpercent = percent of enrollment that is FRL eligible
+# BLACKpercent = percent of enrollment that is black
+# HISPANICpercent = percent of enrollment that is hispanic
+# WHITEpercent = percent of enrollment that is white
+# AGENCYNAMEDISTRICT = school district name
+# SCHOOLNAME = school name
+
+## rename variables
+data$id <- data$SCHOOLIDNCESASSIGNED
+data$year <- data$SURVEYYEAR
+
+# data <- subset(data, data$AGENCYNAMEDISTRICT=="OKLAHOMA CITY" | data$AGENCYNAMEDISTRICT=="TULSA")
+
+
+## create lags
+DVs <- list(data$FRLpercent, data$BLACKpercent, data$HISPANICpercent, data$WHITEpercent, data$TOTALSTUDENTS)
+
+data$FRLlag1 <- lagpanel(data$FRLpercent, data$id, data$year,1)
+data$BLACKlag1 <- lagpanel(data$BLACKpercent, data$id, data$year,1)
+data$HISPANIClag1 <- lagpanel(data$HISPANICpercent, data$id, data$year,1)
+data$HISPANIClag2 <- lagpanel(data$HISPANICpercent, data$id, data$year,2)
+data$HISPANIClag3 <- lagpanel(data$HISPANICpercent, data$id, data$year,3)
+data$WHITElag1 <- lagpanel(data$WHITEpercent, data$id, data$year,1)
+data$TOTALSTUDENTSlag1 <- lagpanel(data$TOTALSTUDENTS, data$id, data$year,1)
+
+## model for total students
+
+selectdata <- na.omit(cbind(data$id,
+                            data$year,
+                            data$TOTALSTUDENTS,
+                            data$TOTALSTUDENTSlag1,
+                            data$charteronehalfoverlap,
+                            data$chartertwohalfoverlap,
+                            data$charterfiveoverlap,
+                            data$chartertenoverlap,
+                            data$numchartersonehalfoverlap,
+                            data$numcharterstwohalfoverlap,
+                            data$numchartersfiveoverlap,
+                            data$numcharterstenoverlap,
+                            data$HISPANICpercent,
+                            data$HISPANIClag1,
+                            data$FRLpercent,
+                            data$FRLlag1,
+                            data$WHITEpercent,
+                            data$WHITElag1,
+                            data$BLACKpercent,
+                            data$BLACKlag1))
+
+selectdata <- as.data.frame(selectdata)
+names(selectdata) <- c("id",
+                       "year",
+                       "totalstudents",
+                       "totalstudentslag1",
+                       "charteronehalfoverlap",
+                       "chartertwohalfoverlap",
+                       "charterfiveoverlap",
+                       "chartertenoverlap",
+                       "numchartersonehalfoverlap",
+                       "numcharterstwohalfoverlap",
+                       "numchartersfiveoverlap",
+                       "numcharterstenoverlap",
+                       "HISPANICpercent",
+                       "HISPANIClag1",
+                       "FRLpercent",
+                       "FRLlag1",
+                       "WHITEpercent",
+                       "WHITElag1",
+                       "BLACKpercent",
+                       "BLACKlag1")
+
+attach(selectdata)
+
+```
+
+```{r}
+## PLM data frame
+
+pdata <- pdata.frame(selectdata, index=c("id", "year"))
+
+# ALL MODELS
+
+DV <- list(FRLpercent, HISPANICpercent, BLACKpercent, WHITEpercent)
+DVlag <- list(FRLlag1, HISPANIClag1, BLACKlag1, WHITElag1)
+charter <- list(charteronehalfoverlap, chartertwohalfoverlap, charterfiveoverlap, chartertenoverlap)
+
+femodel1.5 <- NULL
+femodel2.5 <- NULL
+femodel5 <- NULL
+femodel10 <- NULL
+
+femodels <- list(femodel1.5, femodel2.5, femodel5, femodel10)
+
+for (i in 1:length(DV)){
+  for (j in 1:length(charter)){
+    femodels[[j]][[i]] <- plm(DV[[i]] ~ DVlag[[i]] + charter[[j]],
+                              data = pdata, model = "within")
+  }
+}
+
+fetemodel1.5 <- NULL
+fetemodel2.5 <- NULL
+fetemodel5 <- NULL
+fetemodel10 <- NULL
+fetemodels <- list(fetemodel1.5, fetemodel2.5, fetemodel5, fetemodel10)
+
+for (i in 1:length(DV)){
+  for (j in 1:length(charter)){
+    femodels[[j]][[i]] <- plm(DV[[i]] ~ DVlag[[i]] + charter[[j]] + factor(year),
+                              data = pdata, model = "within")
+  }
+}
+
+#random effects model - 5 miles
+fit.r1 <- lme(fixed = totalstudents ~ charterfiveoverlap + factor(year),
+            random = ~ 1 | id,
+            correlation = corARMA(form = ~ year | id,
+                                  p = 1,
+                                  q = 0))
+summary(fit.r1)
+
+## fixed effects model - 5 miles
+pvar(pdata)
+
+fit.f1 <- plm(FRLpercent ~ FRLlag1 + chartertenoverlap,
+              data=pdata, model="within")
+summary(fit.f1)
+
+fit.f2 <- plm(HISPANICpercent ~ HISPANIClag1 + chartertenoverlap,
+              data=pdata, model="within")
+
+fit.f3 <- plm(BLACKpercent ~ BLACKlag1 + chartertenoverlap,
+              data=pdata, model="within")
+
+fit.f4 <- plm(WHITEpercent ~ WHITElag1 + chartertenoverlap,
+              data=pdata, model="within")
+```
+
+\pagebreak
+
+# Introduction
+
+
+# Background and Theory
+
+
+# Data
+
+
+# Methods
+
+
+# Results
+
+
+# Conclusion
